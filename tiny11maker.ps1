@@ -13,24 +13,29 @@
 .PARAMETER SCRATCH
     Drive letter of the desired scratch disk (eg: D)
 
+.PARAMETER Custom
+    Optional argument used to enable custom debloating selections.
+
 .EXAMPLE
+    .\tiny11maker.ps1
     .\tiny11maker.ps1 E D
     .\tiny11maker.ps1 -ISO E -SCRATCH D
     .\tiny11maker.ps1 -SCRATCH D -ISO E
-    .\tiny11maker.ps1
+    .\tiny11maker.ps1 -SCRATCH D -ISO E -Custom
 
     *If you ordinal parameters the first one must be the mounted iso. The second is the scratch drive.
     prefer the use of full named parameter (eg: "-ISO") as you can put in the order you want.
 
 .NOTES
     Auteur: ntdevlabs
-    Date: 09-07-25
+    Date: 09-28-25
 #>
 
 #---------[ Parameters ]---------#
 param (
     [ValidatePattern('^[c-zC-Z]$')][string]$ISO,
-    [ValidatePattern('^[c-zC-Z]$')][string]$SCRATCH
+    [ValidatePattern('^[c-zC-Z]$')][string]$SCRATCH,
+	[switch]$Custom
 )
 
 if (-not $SCRATCH) {
@@ -260,7 +265,38 @@ $packagesToRemove = $packages | Where-Object {
     $packageName = $_
     $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "*$_*" })
 }
+
+if ($Custom) {
+    $Confirmation = ""
+    $selectedPrefixes = @()
+
+    while ($Confirmation -ne 'Yes') {
+        Write-Output "List of applications to remove:"
+        for ($i=0; $i -lt $packagePrefixes.Count; $i++) {
+            Write-Output "$($i+1). $($packagePrefixes[$i])"
+        }
+        $userInput = Read-Host "Selected numbers (eg: 1,3,5)"
+        $selectedPrefixes = $userInput -split "," | ForEach-Object {
+            $select_index = $_.Trim()
+            if ($select_index -match '^\d+$' -and $select_index -ge 1 -and $select_index -le $packagePrefixes.Count) {
+                $packagePrefixes[$select_index-1]
+            }
+        }
+
+        Write-Output "Chosen package prefixes: $selectedPrefixes"
+        $Confirmation = Read-Host "Type 'Yes' to confirm your selection and proceed with the removal, or press Enter to reselect"
+    }
+
+    $packagesToRemove = @()
+    foreach ($prefix in $selectedPrefixes) {
+        $matched = $packages | Where-Object { $_ -like "$prefix*" }
+        $packagesToRemove += $matched
+    }
+    $packagesToRemove = $packagesToRemove | Sort-Object -Unique
+}
+
 foreach ($package in $packagesToRemove) {
+    Write-Host "Removing $package"
     & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
 }
 
@@ -532,4 +568,3 @@ if (Test-Path -Path "$PSScriptRoot\autounattend.xml") {
 Stop-Transcript
 
 exit
-
