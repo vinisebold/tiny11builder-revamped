@@ -278,6 +278,9 @@ Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" -
 Write-Output "Removal complete!"
 Start-Sleep -Seconds 2
 Clear-Host
+Write-Output "Getting Windows version..."
+$windowsIs24H2 = reg query "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion" /v DisplayVersion | Select-String -Pattern '24H2' -Quiet
+
 Write-Output "Loading registry..."
 reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
 reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
@@ -316,7 +319,9 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Conten
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\PushToInstall' 'DisablePushToInstall' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\MRT' 'DontOfferThroughWUAU' 'REG_DWORD' '1'
 Remove-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\Subscriptions'
-Remove-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\SuggestedApps'
+if (-not $windowsIs24H2) {
+    Remove-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\SuggestedApps'
+}
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCloudOptimizedContent' 'REG_DWORD' '1'
 Write-Output "Enabling Local Accounts on OOBE:"
@@ -384,6 +389,28 @@ Remove-Item -Path "$tasksPath\Microsoft\Windows\Chkdsk\Proxy" -Force -ErrorActio
 # Windows Error Reporting (QueueReporting)
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Error Reporting\QueueReporting" -Force -ErrorAction SilentlyContinue
 Write-Host "Task files have been deleted."
+Write-Host "Deleting scheduled task cache entries..."
+if ($windowsIs24H2) {
+    $taskCacheGuids = @(
+        '3047C197-66F1-4523-BA92-6C955FEF9E4E', 'A0C71CB8-E8F0-498A-901D-4EDA09E07FF4',
+        '780E487D-C62F-4B55-AF84-0E38116AFE07', 'FD607F42-4541-418A-B812-05C32EBA8626',
+        'E4FED5BC-D567-4044-9642-2EDADF7DE108', 'E292525C-72F1-482C-8F35-C513FAA98DAE',
+        '30E6DB3D-C3AA-44DA-8E88-9DB52D84975E', '7235AFD9-C139-458E-AA61-F6FD579A198F',
+        '6FD85B93-7A13-4DCA-B793-1D7D18FEAC39'
+    )
+} else {
+    $taskCacheGuids = @(
+        '0600DD45-FAF2-4131-A006-0B17509B9F78', '4738DE7A-BCC1-4E2D-B1B0-CADB044BFA81',
+        '6FAC31FA-4A85-4E64-BFD5-2154FF4594B3', 'FC931F16-B50A-472E-B061-B6F79A71EF59',
+        '0671EB05-7D95-4153-A32B-1426B9FE61DB', '87BF85F4-2CE1-4160-96EA-52F554AA28A2',
+        '8A9C643C-3D74-4099-B6BD-9C6D170898B1', 'E3176A65-4E44-4ED3-AA73-3283660ACB9C'
+    )
+}
+
+foreach ($taskGuid in $taskCacheGuids) {
+    Remove-RegistryValue "HKEY_LOCAL_MACHINE\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{$taskGuid}"
+}
+
 Write-Host "Unmounting Registry..."
 reg unload HKLM\zCOMPONENTS | Out-Null
 reg unload HKLM\zDEFAULT | Out-Null
