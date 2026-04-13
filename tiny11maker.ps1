@@ -370,6 +370,17 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\InputPersonalization\TrainedD
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Services\dmwappushservice' 'Start' 'REG_DWORD' '4'
+
+$disableDriverAutoInstall = Read-Host "Prevent Windows from automatically installing device drivers? (y/N)"
+if ($disableDriverAutoInstall -match '^(?i:y|yes)$') {
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching' 'SearchOrderConfig' 'REG_DWORD' '0'
+    Write-Output "Automatic device driver installation was disabled for the offline image."
+} elseif ($disableDriverAutoInstall -match '^(?i:n|no)?$') {
+    Write-Output "Keeping default driver installation behavior."
+} else {
+    Write-Output "Unrecognized answer. Keeping default driver installation behavior."
+}
+
 Write-Output "Disabling Windows Spotlight and tips on lockscreen"
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenEnabled' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenOverlayEnabled' 'REG_DWORD' '0'
