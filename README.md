@@ -39,8 +39,8 @@ C:/path/to/your/tiny11/script.ps1 -ISO <inputletter> -SCRATCH <outputletter>
 > Only put the actual letter of the drive, do not put a colon (:) after.  
 > Example: C:\Users\TomBob\Downloads\tiny11maker.ps1 -ISO E -SCRATCH D  
 > The finished image will be written to the same folder that the script is executed from.
-> 
-> You can see of the script by running the `get-help` command.
+>
+> You can see the help of the script by running the `get-help` command.
 6. Select the SKU that you want the image to be based.
 7. Sit back and relax :)
 8. When the image is completed, you will see it in the folder where the script was extracted, with the name tiny11.iso
