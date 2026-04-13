@@ -35,6 +35,7 @@ microsoft.windowscommunicationsapps
 Microsoft.WindowsFeedbackHub
 Microsoft.WindowsMaps
 Microsoft.WindowsSoundRecorder
+Microsoft.MicrosoftEdge.Stable
 Microsoft.WindowsTerminal
 Microsoft.Xbox.TCUI
 Microsoft.XboxApp
