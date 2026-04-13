@@ -30,7 +30,6 @@ This script generates a significantly reduced Windows 11 image. However, **it's 
 2. Mount the downloaded ISO image using Windows Explorer.
 3. Open **PowerShell 5.1** as Administrator.
 4. Change the script execution policy :
-
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process
 ```

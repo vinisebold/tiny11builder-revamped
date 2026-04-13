@@ -24,7 +24,7 @@
     prefer the use of full named parameter (eg: "-ISO") as you can put in the order you want.
 
 .NOTES
-    Auteur: ntdevlabs
+    Author: ntdevlabs
     Date: 09-07-25
 #>
 
@@ -73,12 +73,14 @@ function Remove-RegistryValue {
 }
 
 #---------[ Execution ]---------#
-# Check if PowerShell execution is restricted
-if ((Get-ExecutionPolicy) -eq 'Restricted') {
-    Write-Output "Your current PowerShell Execution Policy is set to Restricted, which prevents scripts from running. Do you want to change it to RemoteSigned? (yes/no)"
+# Check if PowerShell execution is Restricted or AllSigned or Undefined
+$needchange = @("AllSigned", "Restricted", "Undefined")
+$curpolicy = Get-ExecutionPolicy
+if ($curpolicy -in $needchange) {
+    Write-Host "Your current PowerShell Execution Policy is set to $curpolicy, which prevents scripts from running. Do you want to change it to RemoteSigned? (yes/no)"
     $response = Read-Host
     if ($response -eq 'yes') {
-        Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Confirm:$false
+        Set-ExecutionPolicy RemoteSigned -Scope Process -Confirm:$false
     } else {
         Write-Output "The script cannot be run without changing the execution policy. Exiting..."
         exit
@@ -172,8 +174,9 @@ try {
 }
 
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
-Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\install.wim -Index $index -Path $ScratchDisk\scratchdir
+Mount-WindowsImage -ImagePath $wimFilePath -Index $index -Path $ScratchDisk\scratchdir
 
+# Powershell dism module does not have direct equivalent for /Get-Intl
 $imageIntl = & dism /English /Get-Intl "/Image:$($ScratchDisk)\scratchdir"
 $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
 
@@ -184,32 +187,26 @@ if ($languageLine) {
     Write-Output "Default system UI language code not found."
 }
 
-$imageInfo = & 'dism' '/English' '/Get-WimInfo' "/wimFile:$($ScratchDisk)\tiny11\sources\install.wim" "/index:$index"
-$lines = $imageInfo -split '\r?\n'
-
-foreach ($line in $lines) {
-    if ($line -like '*Architecture : *') {
-        $architecture = $line -replace 'Architecture : ',''
-        # If the architecture is x64, replace it with amd64
-        if ($architecture -eq 'x64') {
-            $architecture = 'amd64'
-        }
-        Write-Output "Architecture: $architecture"
-        break
-    }
+# Defined in (Microsoft.Dism.Commands.ImageInfoObject).Architecture formatting script
+# 0 -> x86, 5 -> arm(currently unused), 6 -> ia64(currently unused), 9 -> x64, 12 -> arm64
+switch ((Get-WindowsImage -ImagePath $wimFilePath -Index $index).Architecture) 
+{
+    0 { $architecture = "x86" }
+    9 { $architecture = "amd64" }
+    12 { $architecture = "arm64" }
 }
 
-if (-not $architecture) {
+if ($architecture) {
+    Write-Output "Architecture: $architecture"
+} else {
     Write-Output "Architecture information not found."
 }
 
 Write-Output "=== Mounting complete! Performing removal of applications..."
 
-$packages = & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Get-ProvisionedAppxPackages' |
+$packages = Get-ProvisionedAppxPackage -Path "$ScratchDisk\scratchdir" |
     ForEach-Object {
-        if ($_ -match 'PackageName : (.*)') {
-            $matches[1]
-        }
+        $_.PackageName
     }
 
 $packagePrefixes = 'AppUp.IntelManagementandSecurityStatus',
@@ -263,7 +260,6 @@ $packagePrefixes = 'AppUp.IntelManagementandSecurityStatus',
 'MicrosoftCorporationII.QuickAssist',
 'MSTeams',
 'MicrosoftTeams', 
-'Microsoft.WindowsTerminal',
 'Microsoft.549981C3F5F10'
 
 $packagesToRemove = $packages | Where-Object {
@@ -271,7 +267,8 @@ $packagesToRemove = $packages | Where-Object {
     $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "*$_*" })
 }
 foreach ($package in $packagesToRemove) {
-    & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
+    Write-Host "Removing $package..."
+    Remove-AppxProvisionedPackage -Path "$ScratchDisk\scratchdir" -PackageName "$package" | Out-Null
 }
 
 Write-Output "=== Removing Edge:"
@@ -512,20 +509,32 @@ Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\tiny
 
 Write-Output "=== Creating ISO image..."
 $ADKDepTools = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$hostarchitecture\Oscdimg"
+# Get Windows ADK path from registry (following Visual Studio's winsdk.bat approach).
+$WinSDKPath = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows Kits\Installed Roots", "KitsRoot10", $null)
+if (!$WinSDKPath) {
+    $WinSDKPath = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots", "KitsRoot10", $null)
+}
+
+if ($WinSDKPath) {
+    # Trim trailing backslash for path concatenation.
+    $WinSDKPath = $WinSDKPath.TrimEnd('\\')
+    $ADKDepTools = "$WinSDKPath\Assessment and Deployment Kit\Deployment Tools\$hostarchitecture\Oscdimg"
+}
 $localOSCDIMGPath = "$PSScriptRoot\oscdimg.exe"
 
-if ([System.IO.Directory]::Exists($ADKDepTools)) {
+if ($ADKDepTools -and [System.IO.File]::Exists("$ADKDepTools\oscdimg.exe")) {
     Write-Output "Will be using oscdimg.exe from system ADK."
     $OSCDIMG = "$ADKDepTools\oscdimg.exe"
 } else {
-    Write-Output "ADK folder not found. Will be using bundled oscdimg.exe."
+    Write-Output "oscdimg.exe from system ADK not found. Will be using bundled oscdimg.exe."
+    
     $url = "https://msdl.microsoft.com/download/symbols/oscdimg.exe/3D44737265000/oscdimg.exe"
 
-    if (-not (Test-Path -Path $localOSCDIMGPath)) {
+    if (![System.IO.File]::Exists($localOSCDIMGPath)) {
         Write-Output "Downloading oscdimg.exe..."
         Invoke-WebRequest -Uri $url -OutFile $localOSCDIMGPath
 
-        if (Test-Path $localOSCDIMGPath) {
+        if ([System.IO.File]::Exists($localOSCDIMGPath)) {
             Write-Output "oscdimg.exe downloaded successfully."
         } else {
             Write-Error "Failed to download oscdimg.exe."
