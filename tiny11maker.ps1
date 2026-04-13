@@ -117,12 +117,33 @@ Write-Output "=== Welcome to the tiny11 image creator! Release: 09-07-25"
 
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\tiny11\sources" | Out-Null
+
+$mountedImagePath = $null
+
 do {
     if (-not $ISO) {
-        $DriveLetter = Read-Host "Please enter the drive letter for the Windows 11 image"
+        $isoInput = Read-Host "Please enter the drive letter for the Windows 11 image, or a path to a Windows 11 ISO"
+        $isoInput = $isoInput -replace '"', ''
+
+        if ($isoInput -match '^[c-zC-Z]$') {
+            $DriveLetter = $isoInput
+        } elseif ((Test-Path $isoInput -PathType Leaf) -and ($isoInput -match '\.iso$')) {
+            try {
+                $DriveLetter = (Mount-DiskImage -ImagePath $isoInput -Access ReadOnly | Get-Volume | Select-Object -ExpandProperty DriveLetter)
+                $mountedImagePath = $isoInput
+                Write-Output "Selected ${isoInput} (mounted with drive letter ${DriveLetter}:)."
+            } catch {
+                Write-Output "Failed to mount ISO file. Please verify the image path and try again."
+                $DriveLetter = $null
+            }
+        } else {
+            Write-Output "Invalid input. Enter a drive letter (C-Z) or a valid .iso file path."
+            $DriveLetter = $null
+        }
     } else {
         $DriveLetter = $ISO
     }
+
     if ($DriveLetter -match '^[c-zC-Z]$') {
         $DriveLetter = $DriveLetter + ":"
         Write-Output "Drive letter set to $DriveLetter"
@@ -149,6 +170,11 @@ if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$Driv
 Write-Output "=== Copying Windows image..."
 
 Copy-Item -Path "$DriveLetter\*" -Destination "$ScratchDisk\tiny11" -Recurse -Force | Out-Null
+
+if ($mountedImagePath) {
+    Dismount-DiskImage -ImagePath $mountedImagePath -ErrorAction SilentlyContinue | Out-Null
+}
+
 Set-ItemProperty -Path "$ScratchDisk\tiny11\sources\install.esd" -Name IsReadOnly -Value $false -ErrorAction 'Continue' > $null 2>&1
 Remove-Item "$ScratchDisk\tiny11\sources\install.esd" -ErrorAction 'Continue' > $null 2>&1
 Write-Output "Copy complete!"
