@@ -80,6 +80,7 @@ C:/path/to/your/tiny11/script.ps1 -ISO <inputletter> -SCRATCH <outputletter>
           <li>Tablet PC Math</li>
           <li>Edge</li>
           <li>OneDrive</li>
+          <li>Search Highlights</li>
         </ul>
       </td>
       <td>
