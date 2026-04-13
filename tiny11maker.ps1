@@ -50,34 +50,48 @@ if (-not $SCRATCH) {
     $ScratchDisk = $SCRATCH + ":"
 }
 
+$utilsModulePath = Join-Path $PSScriptRoot 'lib\tiny11utils.psm1'
+if (-not (Test-Path -Path $utilsModulePath -PathType Leaf)) {
+    Write-Error "Required module not found: $utilsModulePath"
+    exit 1
+}
+
+Import-Module -Name $utilsModulePath -Force
+
+$script:installImageMounted = $false
+$script:bootImageMounted = $false
+$script:offlineRegistryLoaded = $false
+$script:transcriptStarted = $false
+
+trap {
+    Write-Error "A fatal error interrupted execution: $($_.Exception.Message)"
+
+    if ($script:offlineRegistryLoaded) {
+        Write-Warning "Attempting emergency registry unload..."
+        Invoke-SafeOfflineRegistryUnload | Out-Null
+        $script:offlineRegistryLoaded = $false
+    }
+
+    if ($script:bootImageMounted -or $script:installImageMounted) {
+        Write-Warning "Attempting emergency image dismount..."
+        Invoke-SafeDismountImage -Path "$ScratchDisk\scratchdir" | Out-Null
+        $script:bootImageMounted = $false
+        $script:installImageMounted = $false
+    }
+
+    if ($script:transcriptStarted) {
+        try {
+            Stop-Transcript | Out-Null
+        } catch {
+            Write-Warning "Transcript could not be stopped during emergency cleanup."
+        }
+        $script:transcriptStarted = $false
+    }
+
+    exit 1
+}
+
 #---------[ Functions ]---------#
-function Set-RegistryValue {
-    param (
-        [string]$path,
-        [string]$name,
-        [string]$type,
-        [string]$value
-    )
-    try {
-        & 'reg' 'add' $path '/v' $name '/t' $type '/d' $value '/f' | Out-Null
-        Write-Output "Set registry value: $path\$name"
-    } catch {
-        Write-Output "Error setting registry value: $_"
-    }
-}
-
-function Remove-RegistryValue {
-    param (
-        [string]$path
-    )
-    try {
-        & 'reg' 'delete' $path '/f' | Out-Null
-        Write-Output "Removed registry value: $path"
-    } catch {
-        Write-Output "Error removing registry value: $_"
-    }
-}
-
 # --- Interactive console selector for package prefixes ---
 function Show-PackageSelector {
     param(
@@ -204,6 +218,7 @@ if (-not (Test-Path -Path "$PSScriptRoot/autounattend.xml")) {
 
 # Start the transcript and prepare the window
 Start-Transcript -Path "$PSScriptRoot\tiny11_$(get-date -f yyyyMMdd_HHmms).log"
+$script:transcriptStarted = $true
 
 $Host.UI.RawUI.WindowTitle = "Tiny11 image creator"
 
@@ -296,6 +311,7 @@ try {
 
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
 Mount-WindowsImage -ImagePath $wimFilePath -Index $index -Path $ScratchDisk\scratchdir
+$script:installImageMounted = $true
 
 # Powershell dism module does not have direct equivalent for /Get-Intl
 $imageIntl = & dism /English /Get-Intl "/Image:$($ScratchDisk)\scratchdir"
@@ -456,6 +472,7 @@ reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default |
 reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat | Out-Null
 reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE | Out-Null
 reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM | Out-Null
+$script:offlineRegistryLoaded = $true
 
 Write-Output "=== Bypassing system requirements (on the system image):"
 Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' 'SV1' 'REG_DWORD' '0'
@@ -616,16 +633,17 @@ if ($windowsIs24H2) {
     )
 }
 
-foreach ($taskGuid in $taskCacheGuids) {
-    Remove-RegistryValue "HKEY_LOCAL_MACHINE\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{$taskGuid}"
+Write-Host "Preparing ACL permissions for TaskCache entries..."
+$taskCacheAclReady = Enable-TaskCacheWriteAccess -AdminGroup $adminGroup
+if (-not $taskCacheAclReady) {
+    Write-Warning "TaskCache ACL hardening did not complete. Continuing with best-effort deletion."
 }
 
+Remove-TaskCacheEntries -TaskGuids $taskCacheGuids
+
 Write-Host "=== Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS | Out-Null
-reg unload HKLM\zDEFAULT | Out-Null
-reg unload HKLM\zNTUSER | Out-Null
-reg unload HKLM\zSOFTWARE | Out-Null
-reg unload HKLM\zSYSTEM | Out-Null
+Invoke-SafeOfflineRegistryUnload | Out-Null
+$script:offlineRegistryLoaded = $false
 
 Write-Output "=== Cleaning up image..."
 dism.exe /Image:$ScratchDisk\scratchdir /Cleanup-Image /StartComponentCleanup /ResetBase
@@ -633,7 +651,10 @@ Write-Output "Cleanup complete."
 
 Write-Output ''
 Write-Output "=== Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+if (-not (Invoke-SafeDismountImage -Path "$ScratchDisk\scratchdir" -Save)) {
+    throw "Failed to dismount the install image safely."
+}
+$script:installImageMounted = $false
 
 Write-Host "=== Exporting image..."
 Dism.exe /Export-Image /SourceImageFile:"$ScratchDisk\tiny11\sources\install.wim" /SourceIndex:$index /DestinationImageFile:"$ScratchDisk\tiny11\sources\install2.wim" /Compress:recovery
@@ -648,6 +669,7 @@ $wimFilePath = "$ScratchDisk\tiny11\sources\boot.wim"
 & icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false
 Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\boot.wim -Index 2 -Path $ScratchDisk\scratchdir
+$script:bootImageMounted = $true
 
 Write-Output "=== Loading registry..."
 reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS
@@ -655,6 +677,7 @@ reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default
 reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat
 reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE
 reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM
+$script:offlineRegistryLoaded = $true
 
 Write-Output "=== Bypassing system requirements(on the setup image):"
 Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' 'SV1' 'REG_DWORD' '0'
@@ -670,14 +693,14 @@ Set-RegistryValue 'HKLM\zSYSTEM\Setup\MoSetup' 'AllowUpgradesWithUnsupportedTPMO
 Write-Output "Tweaking complete!"
 
 Write-Output "=== Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS | Out-Null
-reg unload HKLM\zDEFAULT | Out-Null
-reg unload HKLM\zNTUSER | Out-Null
-reg unload HKLM\zSOFTWARE | Out-Null
-reg unload HKLM\zSYSTEM | Out-Null
+Invoke-SafeOfflineRegistryUnload | Out-Null
+$script:offlineRegistryLoaded = $false
 
 Write-Output "=== Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+if (-not (Invoke-SafeDismountImage -Path "$ScratchDisk\scratchdir" -Save)) {
+    throw "Failed to dismount the boot image safely."
+}
+$script:bootImageMounted = $false
 
 Write-Output "========================================"
 Write-Output "The tiny11 image is now completed. Proceeding with the making of the ISO..."
@@ -796,5 +819,6 @@ if (Test-Path -Path "$PSScriptRoot\autounattend.xml") {
 
 # Stop the transcript
 Stop-Transcript
+$script:transcriptStarted = $false
 
 exit

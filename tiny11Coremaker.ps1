@@ -27,7 +27,50 @@ if (! $myWindowsPrincipal.IsInRole($adminRole))
     [System.Diagnostics.Process]::Start($newProcess);
     exit
 }
+
+$utilsModulePath = Join-Path $PSScriptRoot 'lib\tiny11utils.psm1'
+if (-not (Test-Path -Path $utilsModulePath -PathType Leaf)) {
+    Write-Error "Required module not found: $utilsModulePath"
+    exit 1
+}
+
+Import-Module -Name $utilsModulePath -Force
+
+$script:coreInstallImageMounted = $false
+$script:coreBootImageMounted = $false
+$script:coreOfflineRegistryLoaded = $false
+$script:coreTranscriptStarted = $false
+
+trap {
+    Write-Error "A fatal error interrupted execution: $($_.Exception.Message)"
+
+    if ($script:coreOfflineRegistryLoaded) {
+        Write-Warning "Attempting emergency registry unload..."
+        Invoke-SafeOfflineRegistryUnload | Out-Null
+        $script:coreOfflineRegistryLoaded = $false
+    }
+
+    if ($script:coreBootImageMounted -or $script:coreInstallImageMounted) {
+        Write-Warning "Attempting emergency image dismount..."
+        Invoke-SafeDismountImage -Path "$($env:SystemDrive)\scratchdir" | Out-Null
+        $script:coreBootImageMounted = $false
+        $script:coreInstallImageMounted = $false
+    }
+
+    if ($script:coreTranscriptStarted) {
+        try {
+            Stop-Transcript | Out-Null
+        } catch {
+            Write-Warning "Transcript could not be stopped during emergency cleanup."
+        }
+        $script:coreTranscriptStarted = $false
+    }
+
+    exit 1
+}
+
 Start-Transcript -Path "$PSScriptRoot\tiny11.log" 
+$script:coreTranscriptStarted = $true
 # Ask the user for input
 Write-Output "Welcome to tiny11 core builder! BETA 09-05-25"
 Write-Output "This script generates a significantly reduced Windows 11 image. However, it's not suitable for regular use due to its lack of serviceability - you can't add languages, updates, or features post-creation. tiny11 Core is not a full Windows 11 substitute but a rapid testing or development tool, potentially useful for VM environments."
@@ -87,6 +130,7 @@ if (Test-Path "$mainOSDrive\scratchdir") {
 }
 New-Item -ItemType Directory -Force -Path "$mainOSDrive\scratchdir" > $null
 & dism /English "/mount-image" "/imagefile:$($env:SystemDrive)\tiny11\sources\install.wim" "/index:$index" "/mountdir:$($env:SystemDrive)\scratchdir"
+$script:coreInstallImageMounted = $true
 
 $imageIntl = & dism /English /Get-Intl "/Image:$($env:SystemDrive)\scratchdir"
 $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
@@ -354,11 +398,12 @@ Rename-Item -Path $mainOSDrive\scratchdir\Windows\WinSxS_edit -NewName $mainOSDr
 Write-Output "Complete!"
 
 Write-Output "Loading registry..."
-reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
-reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
-reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat | Out-Null
-reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE | Out-Null
-reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM | Out-Null
+reg load HKLM\zCOMPONENTS $mainOSDrive\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
+reg load HKLM\zDEFAULT $mainOSDrive\scratchdir\Windows\System32\config\default | Out-Null
+reg load HKLM\zNTUSER $mainOSDrive\scratchdir\Users\Default\ntuser.dat | Out-Null
+reg load HKLM\zSOFTWARE $mainOSDrive\scratchdir\Windows\System32\config\SOFTWARE | Out-Null
+reg load HKLM\zSYSTEM $mainOSDrive\scratchdir\Windows\System32\config\SYSTEM | Out-Null
+$script:coreOfflineRegistryLoaded = $true
 Write-Output "Bypassing system requirements(on the system image):"
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV1' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV2' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
@@ -497,17 +542,17 @@ foreach ($path in $servicePaths) {
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' '/v' 'SettingsPageVisibility' '/t' 'REG_SZ' '/d' 'hide:virus;windowsupdate' '/f' 
 Write-Output "Tweaking complete!"
 Write-Output "Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS >null
-reg unload HKLM\zDEFAULT >null
-reg unload HKLM\zNTUSER >null
-reg unload HKLM\zSOFTWARE
-reg unload HKLM\zSYSTEM >null
+Invoke-SafeOfflineRegistryUnload | Out-Null
+$script:coreOfflineRegistryLoaded = $false
 Write-Output "Cleaning up image..."
 & 'dism' '/English' "/image:$mainOSDrive\scratchdir" '/Cleanup-Image' '/StartComponentCleanup' '/ResetBase' >null
 Write-Output "Cleanup complete."
 Write-Output ' '
 Write-Output "Unmounting image..."
-& 'dism' '/English' '/unmount-image' "/mountdir:$mainOSDrive\scratchdir" '/commit'
+if (-not (Invoke-SafeDismountImage -Path "$mainOSDrive\scratchdir" -Save)) {
+    throw "Failed to dismount the install image safely."
+}
+$script:coreInstallImageMounted = $false
 Write-Output "Exporting image..."
 & 'dism' '/English' '/Export-Image' "/SourceImageFile:$mainOSDrive\tiny11\sources\install.wim" "/SourceIndex:$index" "/DestinationImageFile:$mainOSDrive\tiny11\sources\install2.wim" '/compress:max'
 # Wait for any file handles to be released
@@ -571,12 +616,14 @@ if (Test-Path "$mainOSDrive\scratchdir") {
 }
 New-Item -ItemType Directory -Force -Path "$mainOSDrive\scratchdir" > $null
 & 'dism' '/English' '/mount-image' "/imagefile:$mainOSDrive\tiny11\sources\boot.wim" '/index:2' "/mountdir:$mainOSDrive\scratchdir"
+$script:coreBootImageMounted = $true
 Write-Output "Loading registry..."
 reg load HKLM\zCOMPONENTS $mainOSDrive\scratchdir\Windows\System32\config\COMPONENTS
 reg load HKLM\zDEFAULT $mainOSDrive\scratchdir\Windows\System32\config\default
 reg load HKLM\zNTUSER $mainOSDrive\scratchdir\Users\Default\ntuser.dat
 reg load HKLM\zSOFTWARE $mainOSDrive\scratchdir\Windows\System32\config\SOFTWARE
 reg load HKLM\zSYSTEM $mainOSDrive\scratchdir\Windows\System32\config\SYSTEM
+$script:coreOfflineRegistryLoaded = $true
 Write-Output "Bypassing system requirements(on the setup image):"
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV1' '/t' 'REG_DWORD' '/d' '0' '/f' >null
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV2' '/t' 'REG_DWORD' '/d' '0' '/f' >null
@@ -591,13 +638,13 @@ Write-Output "Bypassing system requirements(on the setup image):"
 & 'reg' 'add' 'HKEY_LOCAL_MACHINE\zSYSTEM\Setup' '/v' 'CmdLine' '/t' 'REG_SZ' '/d' 'X:\sources\setup.exe' '/f' >null
 Write-Output "Tweaking complete!"
 Write-Output "Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS >null
-reg unload HKLM\zDEFAULT >null
-reg unload HKLM\zNTUSER >null
-reg unload HKLM\zSOFTWARE >null
-reg unload HKLM\zSYSTEM >null
+Invoke-SafeOfflineRegistryUnload | Out-Null
+$script:coreOfflineRegistryLoaded = $false
 Write-Output "Unmounting image..."
-& 'dism' '/English' '/unmount-image' "/mountdir:$mainOSDrive\scratchdir" '/commit'
+if (-not (Invoke-SafeDismountImage -Path "$mainOSDrive\scratchdir" -Save)) {
+    throw "Failed to dismount the boot image safely."
+}
+$script:coreBootImageMounted = $false
 Clear-Host
 Write-Output "Exporting ESD. This may take a while..."
 & dism /Export-Image /SourceImageFile:"$mainOSDrive\tiny11\sources\install.wim" /SourceIndex:1 /DestinationImageFile:"$mainOSDrive\tiny11\sources\install.esd" /Compress:recovery
@@ -642,7 +689,7 @@ if ((Test-Path variable:ADKDepTools) -and (Test-Path "$ADKDepTools\oscdimg.exe" 
     $OSCDIMG = $localOSCDIMGPath
 }
 
-& "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$ScratchDisk\tiny11\boot\etfsboot.com#pEF,e,b$ScratchDisk\tiny11\efi\microsoft\boot\efisys.bin" "$ScratchDisk\tiny11" "$PSScriptRoot\tiny11.iso"
+& "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$mainOSDrive\tiny11\boot\etfsboot.com#pEF,e,b$mainOSDrive\tiny11\efi\microsoft\boot\efisys.bin" "$mainOSDrive\tiny11" "$PSScriptRoot\tiny11.iso"
 
 # Finishing up
 Write-Output "Creation completed! Press any key to exit the script..."
@@ -653,6 +700,7 @@ Remove-Item -Path "$mainOSDrive\scratchdir" -Recurse -Force >null
 
 # Stop the transcript
 Stop-Transcript
+$script:coreTranscriptStarted = $false
 
 exit
 }
