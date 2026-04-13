@@ -14,10 +14,14 @@
     Drive letter of the desired scratch disk (eg: D)
 	NOTE: The SCRATCH drive must support file/folder security (i.e., must be, e.g., NTFS filesystem).
 
+.PARAMETER Custom
+    Optional switch to manually choose which provisioned packages should be removed.
+
 .EXAMPLE
     .\tiny11maker.ps1 E D
     .\tiny11maker.ps1 -ISO E -SCRATCH D
     .\tiny11maker.ps1 -SCRATCH D -ISO E
+    .\tiny11maker.ps1 -SCRATCH D -ISO E -Custom
     .\tiny11maker.ps1
 
     *If you ordinal parameters the first one must be the mounted iso. The second is the scratch drive.
@@ -31,7 +35,8 @@
 #---------[ Parameters ]---------#
 param (
     [ValidatePattern('^[c-zC-Z]$')][string]$ISO,
-    [ValidatePattern('^[c-zC-Z]$')][string]$SCRATCH
+    [ValidatePattern('^[c-zC-Z]$')][string]$SCRATCH,
+	[switch]$Custom
 )
 
 $ErrorActionPreference = 'Stop'
@@ -301,10 +306,47 @@ if (Test-Path -Path $packageFile -PathType Leaf) {
     }
 }
 
-$packagesToRemove = $packages | Where-Object {
-    $packageName = $_
-    $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "*$_*" })
+if ($Custom) {
+    $packagesToRemove = @()
+
+    while ($true) {
+        Write-Output "List of provisioned applications available for removal:"
+        for ($i = 0; $i -lt $packages.Count; $i++) {
+            Write-Output "$($i + 1). $($packages[$i])"
+        }
+
+        $userInput = Read-Host "Select application numbers (e.g. 1,3,5)"
+        $selectedIndices = $userInput -split ',' | ForEach-Object { $_.Trim() }
+        $packagesToRemove = @()
+
+        foreach ($selectedIndex in $selectedIndices) {
+            if ($selectedIndex -match '^\d+$' -and [int]$selectedIndex -ge 1 -and [int]$selectedIndex -le $packages.Count) {
+                $packagesToRemove += $packages[[int]$selectedIndex - 1]
+            }
+        }
+
+        $packagesToRemove = $packagesToRemove | Sort-Object -Unique
+
+        if ($packagesToRemove.Count -eq 0) {
+            Write-Output "No valid application selection detected. Please try again."
+            continue
+        }
+
+        Write-Output "Chosen applications for removal:"
+        $packagesToRemove | ForEach-Object { Write-Output " - $_" }
+
+        $confirmation = Read-Host "Type 'yes' to confirm, or press Enter to reselect"
+        if ($confirmation -match '^(?i:yes|y)$') {
+            break
+        }
+    }
+} else {
+    $packagesToRemove = $packages | Where-Object {
+        $packageName = $_
+        $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "*$_*" })
+    }
 }
+
 foreach ($package in $packagesToRemove) {
     Write-Host "Removing $package..."
     Remove-AppxProvisionedPackage -Path "$ScratchDisk\scratchdir" -PackageName "$package" | Out-Null
@@ -423,23 +465,36 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Conten
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338387Enabled' 'REG_DWORD' '0'
 ## Prevents installation of DevHome and Outlook
 
-Write-Output "=== Prevents installation of DevHome and Outlook:"
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate' 'workCompleted' 'REG_DWORD' '1'
-Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate'
-Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate'
+$devHomeSelected = $packagesToRemove | Where-Object { $_ -like '*Microsoft.Windows.DevHome*' }
+$outlookSelected = $packagesToRemove | Where-Object { $_ -like '*Microsoft.OutlookForWindows*' }
+$copilotSelected = $packagesToRemove | Where-Object { $_ -like '*Microsoft.Windows.Copilot*' -or $_ -like '*Microsoft.Copilot*' }
+$teamsSelected = $packagesToRemove | Where-Object { $_ -like '*Microsoft.Windows.Teams*' -or $_ -like '*MicrosoftTeams*' -or $_ -like '*MSTeams*' }
 
-Write-Output "=== Disabling Copilot"
-Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 'REG_DWORD' '0'
-Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 'REG_DWORD' '1'
+if (-not $Custom -or $outlookSelected) {
+    Write-Output "=== Prevent installation of New Outlook:"
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\OutlookUpdate' 'workCompleted' 'REG_DWORD' '1'
+    Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
+}
 
-Write-Output "=== Prevents installation of Teams:"
-Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
+if (-not $Custom -or $devHomeSelected) {
+    Write-Output "=== Prevents installation of DevHome:"
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate' 'workCompleted' 'REG_DWORD' '1'
+    Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate'
+}
 
-Write-Output "=== Prevent installation of New Outlook:"
-Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
+if (-not $Custom -or $copilotSelected) {
+    Write-Output "=== Disabling Copilot"
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 'REG_DWORD' '1'
+}
+
+if (-not $Custom -or $teamsSelected) {
+    Write-Output "=== Prevents installation of Teams:"
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
+}
 
 Write-Host "=== Deleting scheduled task definition files..."
 $tasksPath = "$ScratchDisk\scratchdir\Windows\System32\Tasks"
