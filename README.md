@@ -142,7 +142,7 @@ You should replace the Capability with the one returned of course.
 - ~~disabling telemetry~~ (Implemented in the 04-29-24 release!)
 - ~~more ad suppression~~ (Partially implemented in the 09-06-25 release!)
 - improved language and arch detection
-- more flexibility in what to keep and what to delete
+- ~~more flexibility in what to keep and what to delete~~ (Implemented through the `-Custom` package-selection mode.)
 - maybe a GUI???
 
 And that's pretty much it for now!

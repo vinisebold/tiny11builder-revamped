@@ -6,6 +6,7 @@ Microsoft.BingNews
 Microsoft.BingSearch
 Microsoft.BingWeather
 Microsoft.Copilot
+Microsoft.Edge.GameAssist
 Microsoft.Windows.CrossDevice
 Microsoft.GamingApp
 Microsoft.GetHelp
@@ -34,6 +35,7 @@ Microsoft.WindowsCamera
 microsoft.windowscommunicationsapps
 Microsoft.WindowsFeedbackHub
 Microsoft.WindowsMaps
+Microsoft.WindowsNotepad
 Microsoft.WindowsSoundRecorder
 Microsoft.MicrosoftEdge.Stable
 Microsoft.WindowsTerminal

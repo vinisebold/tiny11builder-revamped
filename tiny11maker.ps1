@@ -6,6 +6,7 @@
     This is a script created to automate the build of a streamlined Windows 11 image, similar to tiny10.
     My main goal is to use only Microsoft utilities like DISM, and no utilities from external sources.
     The only executable included is oscdimg.exe, which is provided in the Windows ADK and it is used to create bootable ISO images.
+	Tip: Start a PowerShell (with Admin rights) and use "Set-ExecutionPolicy Bypass -Scope Process" to change the policy.
 
 .PARAMETER ISO
     Drive letter given to the mounted iso (eg: E)
@@ -67,15 +68,104 @@ function Set-RegistryValue {
 
 function Remove-RegistryValue {
     param (
-		[string]$path
-	)
-	try {
-		& 'reg' 'delete' $path '/f' | Out-Null
-		Write-Output "Removed registry value: $path"
-	} catch {
-		Write-Output "Error removing registry value: $_"
-	}
+        [string]$path
+    )
+    try {
+        & 'reg' 'delete' $path '/f' | Out-Null
+        Write-Output "Removed registry value: $path"
+    } catch {
+        Write-Output "Error removing registry value: $_"
+    }
 }
+
+# --- Interactive console selector for package prefixes ---
+function Show-PackageSelector {
+    param(
+        [string[]]$Items,
+        [switch]$DefaultAll
+    )
+
+    # Initialize selection state
+    $selected = @{}
+    for ($i = 0; $i -lt $Items.Count; $i++) {
+        $selected[$i] = $false
+    }
+    if ($DefaultAll) {
+        for ($i = 0; $i -lt $Items.Count; $i++) { $selected[$i] = $true }
+    }
+
+    while ($true) {
+        Clear-Host
+        Write-Host "Select packages to REMOVE from the image:" -ForegroundColor Cyan
+        Write-Host "Toggle items by entering numbers separated by commas. Commands: all, none" -ForegroundColor DarkGray
+        Write-Host "Tip: use ranges like 1-5 or combinations like 1,3,7-9" -ForegroundColor DarkGray
+        Write-Host "use: q / quit / exit to abort - use: 'done' if the selection is ready to proceed" -ForegroundColor DarkGreen
+        Write-Host ""
+
+        for ($i = 0; $i -lt $Items.Count; $i++) {
+            $mark = if ($selected[$i]) { '[X]' } else { '[ ]' }
+            $num = ($i + 1).ToString().PadLeft(3)
+            Write-Host "$num $mark  $($Items[$i])"
+        }
+
+        Write-Host ""
+        $input = Read-Host "Enter selection"
+        if (-not $input) { continue }
+
+        $input = $input.Trim()
+        $lower = $input.ToLowerInvariant()
+        if ($lower -in @('q','quit','exit')) {
+            Write-Host "Exiting selection and keeping current choices." -ForegroundColor Yellow
+            break
+        }
+        if ($lower -eq 'done') { break }
+        if ($lower -eq 'all') {
+            for ($i = 0; $i -lt $Items.Count; $i++) { $selected[$i] = $true }
+            continue
+        }
+        if ($lower -eq 'none') {
+            for ($i = 0; $i -lt $Items.Count; $i++) { $selected[$i] = $false }
+            continue
+        }
+
+        # Parse numeric toggles like "1,3-5,8"
+        $tokens = $input -split '[, ]+' | Where-Object { $_ -ne '' }
+        foreach ($t in $tokens) {
+            if ($t -match '^\d+$') {
+                $idx = [int]$t - 1
+                if ($idx -ge 0 -and $idx -lt $Items.Count) {
+                    $selected[$idx] = -not $selected[$idx]
+                } else {
+                    Write-Host "Number out of range: $t" -ForegroundColor DarkYellow
+                    Start-Sleep -Seconds 1
+                }
+            } elseif ($t -match '^(\d+)-(\d+)$') {
+                $start = [int]$Matches[1] - 1
+                $end = [int]$Matches[2] - 1
+                if ($start -lt 0) { $start = 0 }
+                if ($end -ge $Items.Count) { $end = $Items.Count - 1 }
+                if ($start -le $end) {
+                    for ($j = $start; $j -le $end; $j++) {
+                        $selected[$j] = -not $selected[$j]
+                    }
+                } else {
+                    Write-Host "Invalid range: $t" -ForegroundColor DarkYellow
+                    Start-Sleep -Seconds 1
+                }
+            } else {
+                Write-Host "Ignored token: $t" -ForegroundColor DarkYellow
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+
+    # Build and return selected items
+    $result = for ($i = 0; $i -lt $Items.Count; $i++) {
+        if ($selected[$i]) { $Items[$i] }
+    }
+    return ,$result
+}
+# --- End selector function ---
 
 #---------[ Execution ]---------#
 # Check if PowerShell execution is Restricted or AllSigned or Undefined
@@ -201,7 +291,7 @@ try {
     Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false -ErrorAction Stop
 } catch {
     # This block will catch the error and suppress it.
-	Write-Error "$wimFilePath not found"
+    Write-Error "$wimFilePath not found"
 }
 
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
@@ -240,15 +330,17 @@ $packages = Get-ProvisionedAppxPackage -Path "$ScratchDisk\scratchdir" |
         $_.PackageName
     }
 
+#---------[ Package prefixes list ]---------#
 $packagePrefixes = 'AppUp.IntelManagementandSecurityStatus',
-'Clipchamp.Clipchamp', 
+'Clipchamp.Clipchamp',
 'DolbyLaboratories.DolbyAccess',
 'DolbyLaboratories.DolbyDigitalPlusDecoderOEM',
+'Microsoft.549981C3F5F10',
 'Microsoft.BingNews',
 'Microsoft.BingSearch',
 'Microsoft.BingWeather',
 'Microsoft.Copilot',
-'Microsoft.Windows.CrossDevice',
+'Microsoft.Edge.GameAssist',
 'Microsoft.GamingApp',
 'Microsoft.GetHelp',
 'Microsoft.Getstarted',
@@ -268,14 +360,16 @@ $packagePrefixes = 'AppUp.IntelManagementandSecurityStatus',
 'Microsoft.StartExperiencesApp',
 'Microsoft.Todos',
 'Microsoft.Wallet',
-'Microsoft.Windows.DevHome',
 'Microsoft.Windows.Copilot',
+'Microsoft.Windows.CrossDevice',
+'Microsoft.Windows.DevHome',
 'Microsoft.Windows.Teams',
 'Microsoft.WindowsAlarms',
 'Microsoft.WindowsCamera',
 'microsoft.windowscommunicationsapps',
 'Microsoft.WindowsFeedbackHub',
 'Microsoft.WindowsMaps',
+'Microsoft.WindowsNotepad',
 'Microsoft.WindowsSoundRecorder',
 'Microsoft.MicrosoftEdge.Stable',
 'Microsoft.WindowsTerminal',
@@ -308,37 +402,23 @@ if (Test-Path -Path $packageFile -PathType Leaf) {
 }
 
 if ($Custom) {
-    $packagesToRemove = @()
+    try {
+        $selectedPrefixes = Show-PackageSelector -Items $packagePrefixes -DefaultAll
+    } catch {
+        Write-Warning "Interactive selector failed or was interrupted. Defaulting to all configured prefixes."
+        $selectedPrefixes = $packagePrefixes
+    }
 
-    while ($true) {
-        Write-Output "List of provisioned applications available for removal:"
-        for ($i = 0; $i -lt $packages.Count; $i++) {
-            Write-Output "$($i + 1). $($packages[$i])"
-        }
-
-        $userInput = Read-Host "Select application numbers (e.g. 1,3,5)"
-        $selectedIndices = $userInput -split ',' | ForEach-Object { $_.Trim() }
+    if (-not $selectedPrefixes -or $selectedPrefixes.Count -eq 0) {
+        Write-Output "No package prefixes selected for removal. Skipping Appx package removal step."
         $packagesToRemove = @()
+    } else {
+        Write-Output "Selected package prefixes to remove:"
+        $selectedPrefixes | ForEach-Object { Write-Output " - $_" }
 
-        foreach ($selectedIndex in $selectedIndices) {
-            if ($selectedIndex -match '^\d+$' -and [int]$selectedIndex -ge 1 -and [int]$selectedIndex -le $packages.Count) {
-                $packagesToRemove += $packages[[int]$selectedIndex - 1]
-            }
-        }
-
-        $packagesToRemove = $packagesToRemove | Sort-Object -Unique
-
-        if ($packagesToRemove.Count -eq 0) {
-            Write-Output "No valid application selection detected. Please try again."
-            continue
-        }
-
-        Write-Output "Chosen applications for removal:"
-        $packagesToRemove | ForEach-Object { Write-Output " - $_" }
-
-        $confirmation = Read-Host "Type 'yes' to confirm, or press Enter to reselect"
-        if ($confirmation -match '^(?i:yes|y)$') {
-            break
+        $packagesToRemove = $packages | Where-Object {
+            $packageName = $_
+            $selectedPrefixes -contains ($selectedPrefixes | Where-Object { $packageName -like "*$_*" })
         }
     }
 } else {
