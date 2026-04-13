@@ -288,6 +288,19 @@ $packagePrefixes = 'AppUp.IntelManagementandSecurityStatus',
 'MicrosoftTeams', 
 'Microsoft.549981C3F5F10'
 
+$packageFile = Join-Path $PSScriptRoot 'removePackage.txt'
+if (Test-Path -Path $packageFile -PathType Leaf) {
+    $packagePrefixesFromFile = Get-Content -Path $packageFile |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -ne '' } |
+        Select-Object -Unique
+
+    if ($packagePrefixesFromFile.Count -gt 0) {
+        $packagePrefixes = $packagePrefixesFromFile
+        Write-Output "Loaded package removal list from removePackage.txt"
+    }
+}
+
 $packagesToRemove = $packages | Where-Object {
     $packageName = $_
     $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "*$_*" })
