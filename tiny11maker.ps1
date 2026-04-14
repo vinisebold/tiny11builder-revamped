@@ -535,6 +535,9 @@ Write-Output "=== Disabling OneDrive folder backup"
 Set-RegistryValue "HKLM\zSOFTWARE\Policies\Microsoft\Windows\OneDrive" "DisableFileSyncNGSC" "REG_DWORD" "1"
 Write-Output "Disabling Search Highlights:"
 Set-RegistryValue 'HKLM\zSoftware\Microsoft\Windows\CurrentVersion\SearchSettings' 'IsDynamicSearchBoxEnabled' 'REG_DWORD' '0'
+Write-Output "=== Disabling Automatic Maintenance:"
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance' 'MaintenanceDisabled' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\ScheduledDiagnostics' 'EnabledExecution' 'REG_DWORD' '0'
 Write-Output "=== Disabling Telemetry:"
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 'REG_DWORD' '0'
