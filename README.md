@@ -52,6 +52,23 @@ C:/path/to/your/tiny11/script.ps1 -ISO <inputletter> -SCRATCH <outputletter>
 
 ---
 
+## Cross-platform usage (Windows + Linux)
+
+You can now drive the build from either Windows or Linux using `tiny11builder.ps1`.
+
+- **Windows:** behaviour is unchanged; the wrapper forwards to `tiny11maker.ps1` (or `tiny11coremaker.ps1` when you pass `-Core`). Use the same `-ISO` and `-SCRATCH` drive-letter parameters as before.
+- **Linux:** requires PowerShell 7 (`pwsh`), `wimlib-imagex`, `7z`, `hivexregedit` (libhivex), `xorriso`, and `bash`. Root privileges are recommended so wim mounts succeed.
+  - Example:
+
+    ```bash
+    sudo pwsh ./tiny11builder.ps1 -ISOPath /path/to/Win11.iso -ScratchPath /tmp/tiny11work -ImageIndex 1
+    ```
+
+  - The Linux flow extracts the ISO, trims the image, applies the same registry/privacy tweaks via `hivexregedit`, and writes `tiny11.iso` next to the script. Custom package selection is available with `-Custom`.
+  - The `-Core` flag is not yet supported on Linux.
+
+---
+
 ## What is removed:
 
 <table>
