@@ -538,6 +538,16 @@ Set-RegistryValue 'HKLM\zSoftware\Microsoft\Windows\CurrentVersion\SearchSetting
 Write-Output "=== Disabling Automatic Maintenance:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance' 'MaintenanceDisabled' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\ScheduledDiagnostics' 'EnabledExecution' 'REG_DWORD' '0'
+Write-Output "=== Optimizing shutdown and responsiveness timings:"
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control' 'WaitToKillServiceTimeout' 'REG_SZ' '1500'
+Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\Desktop' 'HungAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\Desktop' 'WaitToKillAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\Desktop' 'LowLevelHooksTimeout' 'REG_SZ' '1000'
+Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\Desktop' 'AutoEndTasks' 'REG_SZ' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'HungAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'WaitToKillAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'LowLevelHooksTimeout' 'REG_SZ' '1000'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'AutoEndTasks' 'REG_SZ' '1'
 Write-Output "=== Disabling Telemetry:"
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 'REG_DWORD' '0'

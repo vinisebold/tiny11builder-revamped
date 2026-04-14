@@ -465,6 +465,16 @@ Write-Output "Disabling Search Highlights:"
 Write-Output "Disabling Automatic Maintenance:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance' '/v' 'MaintenanceDisabled' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\ScheduledDiagnostics' '/v' 'EnabledExecution' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
+Write-Output "Optimizing shutdown and responsiveness timings:"
+& 'reg' 'add' 'HKLM\zSYSTEM\ControlSet001\Control' '/v' 'WaitToKillServiceTimeout' '/t' 'REG_SZ' '/d' '1500' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\Desktop' '/v' 'HungAppTimeout' '/t' 'REG_SZ' '/d' '2000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\Desktop' '/v' 'WaitToKillAppTimeout' '/t' 'REG_SZ' '/d' '2000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\Desktop' '/v' 'LowLevelHooksTimeout' '/t' 'REG_SZ' '/d' '1000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\Desktop' '/v' 'AutoEndTasks' '/t' 'REG_SZ' '/d' '1' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Control Panel\Desktop' '/v' 'HungAppTimeout' '/t' 'REG_SZ' '/d' '2000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Control Panel\Desktop' '/v' 'WaitToKillAppTimeout' '/t' 'REG_SZ' '/d' '2000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Control Panel\Desktop' '/v' 'LowLevelHooksTimeout' '/t' 'REG_SZ' '/d' '1000' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Control Panel\Desktop' '/v' 'AutoEndTasks' '/t' 'REG_SZ' '/d' '1' '/f' | Out-Null
 Write-Output "Disabling Telemetry:"
 & 'reg' 'add' 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' '/v' 'Enabled' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
 & 'reg' 'add' 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Privacy' '/v' 'TailoredExperiencesWithDiagnosticDataEnabled' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
